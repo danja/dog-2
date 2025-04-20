@@ -1,0 +1,8 @@
+00
+00
+TEST
+NOP ; do nothing 4 times
+NOP
+NOP
+NOP
+DUMP
