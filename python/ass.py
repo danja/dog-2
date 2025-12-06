@@ -2,7 +2,7 @@
 import sys
 import argparse
 
-src = "../src/dog-1/dog-1.ino"
+src = "../src/core.h"
 
 infile = "test.txt"
 outfile = "out.txt"

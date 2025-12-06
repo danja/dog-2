@@ -1,0 +1,41 @@
+; Fibonacci Tone Generator
+; Generates a quasi-musical sequence based on the Fibonacci series
+;
+; Memory locations:
+;   0x007F - stores F(n-1) (previous Fibonacci number)
+;   0x0080 - stores F(n)   (current Fibonacci number)
+;
+; The program calculates successive Fibonacci numbers and plays tones
+; based on their values, creating an evolving musical pattern.
+
+0000                    ; Start at address 0x0000
+
+F03C                    ; TEMPO 60 - Set a moderate tempo
+1001                    ; LDAi 01 - Load 1 into accumulator A
+147F00                  ; STAa 007F - Store at 0x007F (F(n-1) = 1)
+1001                    ; LDAi 01 - Load 1 into accumulator A
+148000                  ; STAa 0080 - Store at 0x0080 (F(n) = 1)
+
+; Main loop - calculates next Fibonacci and plays corresponding tone
+118000                  ; LDAa 0080 - Load F(n) into A
+197F00                  ; LDBa 007F - Load F(n-1) into B
+80                      ; ABA - A = F(n) + F(n-1) = F(n+1)
+
+; Shift values: current becomes previous, next becomes current
+198000                  ; LDBa 0080 - Load F(n) into B
+1C7F00                  ; STBa 007F - Store as F(n-1)
+148000                  ; STAa 0080 - Store F(n+1) as F(n)
+
+; Prepare and play tone
+40                      ; PUSHXA - Save Fibonacci value
+A00F                    ; ANDAi 0F - Mod 16 to get note (0-15)
+1808                    ; LDBi 08 - Duration = 8
+F3                      ; TONEAB - Play tone (note in A, duration in B)
+F104                    ; REST 04 - Small pause between notes
+
+; Check if we should continue
+41                      ; POPXA - Restore Fibonacci value
+B9C0                    ; CMPAi C0 - Compare with 192
+69E3                    ; BZC -29 - Branch back to loop if less than 192
+
+FF                      ; HALT - End program

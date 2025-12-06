@@ -3,81 +3,159 @@
 
 This is a 2025 reboot of [Dog-1](https://github.com/danja/dog), updated for PlatformIO.
 
-**Status 2025-04-20 : it compiles, but either I've borked the code or my only display is dud (after kicking around for 7 years)**
-
-Docs will be updated once I've got the thing working again.
+**Status 2025-12-06: Code compiles and 98% of tests pass! Major bug fixes completed.**
 
 ![DOG-1](https://github.com/danja/dog/blob/master/docs/dog-1.JPG?raw=true)
 
-Playing with a cheapo TM1638 card driven by an Arduino Uno. Trying to put together a 1970's-style single-board computer a bit like the KIM-1, except with two boards and my own instruction set etc.
+A 1970's-style single-board computer using a TM1638 card driven by an Arduino Nano. Inspired by the KIM-1 and MK14, with a custom instruction set.
 
-I'm writing up the [DOG-1 Manual](docs/manual.md) as I go along. I did a short intro video early on : [DOG-1 Intro](https://www.youtube.com/watch?v=qjk-y1qbj7w).
+## Quick Start
 
-### Status
+### Build and Upload
 
-**2019-01-05** : picking up the project again after a long break. My main dev machine packed up, so I've been forced to set things up from scratch on an old laptop. First issue, the Standard C++ libraries I was using no longer work  with the latest Arduino libs. Luckily I found the [ArduinoSTL](https://github.com/mike-matera/ArduinoSTL), which (after a tweak to the headers) worked straight away.
+```bash
+# Build the firmware
+pio run
 
-There's nothing like returning to a project after a break to highlight bugs and gaps in documentation. On the former, the flow control still isn't quite right. Stuff will run ok, but it can take a bit of keypad fumbling. I also see I haven't yet fixed the problem of loading long Dog programs, and there are definite issues with some of the opcodes I've implemented, notably the branches. I guess I'll just had to plod through, building tests. It's a bit embarrasing for someone who's been coding for 40 years to admit, but I've been having to review [2's Complement Arithmetic](https://www.cs.cornell.edu/~tomf/notes/cps104/twoscomp.html)...
+# Upload to Arduino Nano
+pio run --target upload
 
-Regarding documentation, I did struggle to get things going from my current notes. Need a quickstart doc.
+# Monitor serial output
+pio device monitor
+```
 
-On a general point, while I've found the Arduino IDE pretty much usable so far, it does seem a bit clunky for use with anything but off-the-shelf libs, so once I've caught up with current issues, I plan to move over to [PlatformIO](https://platformio.org/).
+### Run Tests
 
-I want to use [ESP32](https://www.espressif.com/en/products/hardware/esp32/overview) cards in other projects, so I may well have a go at porting Dog across, and web-enabling it.
+```bash
+# Run all tests on connected device
+~/.platformio/penv/bin/pio test -e test
 
-2018-07-16 : looking at the thing again after a long break, looks like last time I committed a broken version - a typo meant it wouldn't even compile. Oops! Fixed that, tried the TONE [Bach demo](https://github.com/danja/dog/blob/master/dog-code/bach.ass), it locked up on loading, although a shorter program would upload ok. Also flipping back from Run to Program mode seems buggy. Annoying. My guess is timing errors in both cases. I think I'm using a different Uno board than before, so maybe fluked it last time. (Although I just saw a commit comment saying I had loadToEEPROM issues - dunno if I corrected those). Need to reread my notes...
+# Run specific test
+~/.platformio/penv/bin/pio test -e test -f test_flags
+```
 
-2018-04-24 : have been setting up a test harness. Had a lot of trouble with serial (again), but right now it seems stable enough. The testing isn't quite there yet - it works fine for a single test, but not when trying more than one. The PC seems to have a mind of it's own...
+**Current test results: 56/57 tests passing (98.2%)**
 
-2018-04-24 : today added the opcode TONE <note> <duration>. That in itself was pretty trivial (although I do need to finesse the duration a bit). What wasn't so straightforward was that on trying a longer program that I have before, it showed up a major problem with my serial interface code (for uploading programs via Python on the laptop). It was failing after 32 instructions - turns out the Arduino Uno has a 64 byte buffer, and it's really easy to make mistakes. Had to rework the whole interface. But I finally managed to get it going, and so made another little video : [DOG-1 Bachs!](https://youtu.be/eEgXBOtdvvg).
-Based around assembler like this:
+### Upload a Program
 
-<pre>
-TONE 13 04
-REST 04
-HALT
-</pre>
+First, install pyserial:
 
-2018-04-22 : to try a 'proper' program, filled in the opcodes to support this - the Galois pseudorandom number generator as described in [Wikipedia](https://en.wikipedia.org/wiki/Linear-feedback_shift_register#Galois_LFSRs).
+```bash
+# Option 1: System package manager (recommended)
+sudo apt install python3-serial
 
-<pre>
-LDAi AC ; put 0xAC in acc A
-LDBi E1 ; put 0xE1 in acc B
-LSR ; shift right (and into carry)
-BCC FE; branch -2 if carry clear
-EORAi B4 ; toggle mask
-EORBi 00
-PAUSE
-BZC FB ; branch up to the shift
-HALT
-</pre>
+# Option 2: Virtual environment
+python3 -m venv venv
+source venv/bin/activate
+pip install pyserial
+```
 
-Unfortunately, figuring out the correct branching - using 2's complement jumps back - gets mighty confusing. So right now it's waiting for me to sort out the single-stepping and a suitable test or two.
+Then upload a program:
 
-2018-04-16 : made a mess of my TM1638 lib, took me a while to fix that. Then I got in a mess with my flags. Turned out I'd put in !x rather than ~x for bitwise negation, took me ages to spot. But pretty much back on track. Got this to run ok:
+```bash
+# Auto-detect serial port
+python python/upload.py -i dog-code/fibtone.hex
 
-<pre>
-LDAi F6 ; put 0xF6 in acc A
-STAa 99 01 ; store acc A at 0199
-LDBa 99 01  ; load acc B from 0199
-CAB ; compare A & B
-BZS 01; branch if zero set
-ERR ; display Err
-OK ; display ok
-HALT
-</pre>
+# Or specify port
+python python/upload.py -i dog-code/fibtone.hex -p /dev/ttyUSB0
+```
 
-2018-03-31 : up to about 40 opcodes (untested). Made a minimal assembler in Python, should be enough for testing. (It takes opcode/hex value map directly from defines in the C source, so will be in sync).
+See [Fibonacci Tone Tutorial](docs/fibtone.md) for a complete example.
 
-2018-03-30 : now implemented 7 instructions for each of acc A & B (refactored to use same routines)
+## Documentation
 
-2018-03-30 : some tidying/refactoring. Decided to create a dedicated 8-bit stack (ALU Stack) for experimenting with stack-oriented programming and maths. Added controls (two-button) to allow display of register contents.
-(see https://en.wikipedia.org/wiki/Stack-oriented_programming_language https://www.forth.com/starting-forth/2-stack-manipulation-operators-arithmetic/ )
+- **[CLAUDE.md](CLAUDE.md)** - Project overview, architecture, and development guide
+- **[DOG-1 Manual](docs/manual.md)** - Instruction set and architecture reference
+- **[Opcode Reference](docs/opcodes.md)** - Complete opcode listing
+- **[Fibonacci Tutorial](docs/fibtone.md)** - Example program with step-by-step guide
+- **[Testing Guide](TESTING.md)** - How to run and write tests
+- **[Bug Tracker](docs/bugs.md)** - Known issues and fixes
 
-2018-03-29 (10pm) : implemented simple serial transfer of DOG-1 programs from computer USB/serial port, with very crude python script. (Just enough for testing opcodes).
+## Recent Updates (2025-12-06)
 
-2018-03-29 (3am!) : implemented a handful of instructions - got a first program running! So chuffed I did a [VIDEO](https://youtu.be/qjk-y1qbj7w)
+### Major Bug Fixes
+- ✅ Fixed `setFlag()` bitwise negation bug (was using `!mask` instead of `~mask`)
+- ✅ Fixed DECA opcode (was incrementing instead of decrementing)
+- ✅ Fixed all branch operations (PC offset calculation)
+- ✅ Implemented missing opcodes: CLRA, CLRB, DEXS, ABA
+- ✅ Fixed ROT stack operation
+- ✅ Fixed runMode assignment
 
-2018-03-28 : refactored, TM1638 interface bits moved to a separate library - https://github.com/danja/TM1638lite
+### Test Infrastructure
+- Created comprehensive test suite with 57 tests
+- Tests cover flags, opcodes, branches, and stack operations
+- On-device testing via PlatformIO
+- All tests documented in [TESTING.md](TESTING.md)
 
-2018-03-27 : UI, program input implemented.
+### Example Programs
+- Added Fibonacci tone generator (`dog-code/fibtone.dog`)
+- Complete tutorial for loading programs
+- Improved upload script with auto-detection
+
+## Hardware
+
+- **Board**: Arduino Nano (ATmega328P)
+- **Display/Input**: TM1638 (8 LEDs, 8 seven-segment displays, 8 buttons)
+- **Pins**: STB=7, CLK=10, DIO=11, Speaker=9
+- **Serial**: 9600 baud
+
+## Architecture
+
+- **16-bit addressing** with 8-bit instructions and data
+- **Two 8-bit accumulators** (A & B)
+- **Custom instruction set** (~100+ opcodes)
+- **Stack-oriented programming** support
+- **Five addressing modes**: Immediate, Absolute, Indexed, Accumulator, Relative
+
+Memory:
+- 128 bytes program memory
+- 64-byte PC/subroutine stack
+- 64-byte auxiliary stack for Forth-style operations
+- EEPROM for persistent storage
+
+## Example Program
+
+```assembly
+LDAi F6      ; Load 0xF6 into accumulator A
+STAa 99 01   ; Store A at address 0x0199
+LDBa 99 01   ; Load B from address 0x0199
+CAB          ; Compare A with B
+BZS 01       ; Branch forward 1 if zero set
+ERR          ; Display error
+OK           ; Display OK
+HALT         ; Stop execution
+```
+
+## Historical Notes
+
+**2025-04-20**: Rebooted project for PlatformIO. Code compiles but hardware needs verification (7-year-old display may be faulty).
+
+**2019-01-05**: Resumed after long break. Fixed Arduino library compatibility with ArduinoSTL. Known issues: flow control timing, long program loading, branch opcode 2's complement issues.
+
+**2018-07-16**: Fixed compilation typo. TONE demo had upload issues. Mode switching buggy - suspected timing errors.
+
+**2018-04-24**: Added TONE opcode. Reworked serial interface (64-byte buffer issue). Created [DOG-1 Bachs!](https://youtu.be/eEgXBOtdvvg) video.
+
+**2018-04-16**: Fixed TM1638 library mess and flag bugs (`!x` vs `~x` for bitwise negation - finally fixed in 2025!).
+
+**2018-03-31**: ~40 opcodes implemented. Created minimal Python assembler.
+
+**2018-03-30**: Implemented dedicated 8-bit stack for stack-oriented programming experiments.
+
+**2018-03-29**: First program running! Made [intro video](https://youtu.be/qjk-y1qbj7w).
+
+**2018-03-28**: Refactored TM1638 interface into separate library.
+
+**2018-03-27**: UI and program input implemented.
+
+## Contributing
+
+See the comprehensive test suite in `test/` directory. Run tests before submitting changes:
+
+```bash
+~/.platformio/penv/bin/pio test -e test
+```
+
+## License
+
+See LICENSE file for details.

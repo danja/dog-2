@@ -7,6 +7,8 @@
 
 #define NOTE_C4 262
 #define NOTE_G4 392
+
+// START OPCODES # leave this line in place, used by ass.py
 #define NOP 0x00
 #define STOP 0x01
 #define PLAYN 0x02
@@ -165,6 +167,7 @@
 #define OK 0xFD
 #define ERR 0xFE
 #define HALT 0xFF
+// END OPCODES # leave this line in place, used by ass.py
 
 #define NOTE_IDX_C4 0
 #define NOTE_IDX_G4 1
