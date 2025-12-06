@@ -101,6 +101,16 @@ void initRegisters() {
    Move data from buffer into program array
 */
 void translateProg() {
+    // nothing to translate unless we've actually received a buffer
+    if (rawSize == 0) {
+      return;
+    }
+
+    // basic sanity check so we don't walk past the buffer
+    if (rawSize < 4 || (rawSize & 1)) {
+      showError("Prog");
+      return;
+    }
 
     uint16_t start = 0;
   
@@ -1039,6 +1049,13 @@ void showStatus() {
     tm.setLED(i, shifty & 1);
     shifty = shifty >> 1;
   }
+}
+
+void stepLED() {
+  for (uint8_t i = 0; i < 8; i++) {
+    tm.setLED(i, i == ledStep);
+  }
+  ledStep = (ledStep + 1) % 8;
 }
 
 /**
