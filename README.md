@@ -11,7 +11,7 @@ Docs will be updated once I've got the thing working again.
 
 Playing with a cheapo TM1638 card driven by an Arduino Uno. Trying to put together a 1970's-style single-board computer a bit like the KIM-1, except with two boards and my own instruction set etc.
 
-I'm writing up the [DOG-1 Manual](https://github.com/danja/dog/blob/master/docs/manual.md) as I go along. I did a short intro video early on : [DOG-1 Intro](https://www.youtube.com/watch?v=qjk-y1qbj7w).
+I'm writing up the [DOG-1 Manual](docs/manual.md) as I go along. I did a short intro video early on : [DOG-1 Intro](https://www.youtube.com/watch?v=qjk-y1qbj7w).
 
 ### Status
 

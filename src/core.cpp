@@ -223,7 +223,7 @@ void handleButtons() {
   
       // 0 & 3 - flip between single-step & free run
       if ( (buttons & (1 << 0)) && (buttons & (1 << 3)) && mode == RUN_MODE) {
-        runMode == RUN; // compiler says it has no effect TODO
+        runMode = RUN;
         flashMessage("run");
         return;
       }
@@ -364,7 +364,7 @@ void setFlag(uint8_t flag, boolean value) {
   if (value) {
     status = status | mask;
   } else {
-    status = status & !mask;
+    status = status & ~mask;  // Use bitwise NOT, not logical NOT
   }
   showStatus();
 }
@@ -438,41 +438,64 @@ void doOperation() {
       // ############### Branches
   
       case BRA:
-        pc++;
-        pc += (int8_t)program[pc];
+        pc++;  // Move to offset byte
+        pc++;  // Move to next instruction
+        pc += (int8_t)program[pc - 1];  // Add offset (read from previous position)
         return;
   
       case BZS:                           // branch if zero set
-        pc++;
+        pc++;  // Move to offset byte
         if (getFlag(ZERO)) {
-          pc += (int8_t)program[pc]; // TODO overflow check, 2's comp
+          pc++;  // Move to next instruction
+          pc += (int8_t)program[pc - 1];  // Add offset
+        } else {
+          pc++;  // Skip offset byte if not branching
         }
         return;
   
       case BZC:                           // branch if zero clear
-        pc++;
+        pc++;  // Move to offset byte
         if (!getFlag(ZERO)) {
-          pc += (int8_t)program[pc]; // TODO overflow check, 2's comp
+          pc++;  // Move to next instruction
+          pc += (int8_t)program[pc - 1];  // Add offset
+        } else {
+          pc++;  // Skip offset byte if not branching
         }
         return;
   
       //
       case BCS:                           // branch if carry set
-        pc++;
+        pc++;  // Move to offset byte
         if (getFlag(CARRY)) {
-          pc += (int8_t)program[pc]; // TODO overflow check, 2's comp
+          pc++;  // Move to next instruction
+          pc += (int8_t)program[pc - 1];  // Add offset
+        } else {
+          pc++;  // Skip offset byte if not branching
         }
         return;
   
       case BCC:                           // branch if carry clear
-        pc++;
+        pc++;  // Move to offset byte
         if (!getFlag(CARRY)) {
-          pc += (int8_t)program[pc]; // TODO overflow check, 2's comp
+          pc++;  // Move to next instruction
+          pc += (int8_t)program[pc - 1];  // Add offset
+        } else {
+          pc++;  // Skip offset byte if not branching
         }
         return;
   
       // ############### acc logical operators ###############
-  
+
+      case ABA:  // Add accumulator B to accumulator A
+        {
+          uint16_t result = acc[0] + acc[1];
+          setFlag(CARRY, result > 0xFF);
+          setFlag(OVERFLOW, ((acc[0] ^ result) & (acc[1] ^ result) & 0x80) != 0);
+          acc[0] = (uint8_t)result;
+          doFlags(acc[0]);
+        }
+        return;
+
       case CAB:                             // compare B with A, only NVZ status flags affected
         if (acc[0] == acc[1]) {
           setFlag(ZERO, true);
@@ -554,7 +577,15 @@ void doOperation() {
         acc[0] = acc[1];
         acc[1] = val8;
         return;
-  
+
+      case CLRA: // clear accumulator A
+        acc[0] = 0;
+        return;
+
+      case CLRB: // clear accumulator B
+        acc[1] = 0;
+        return;
+
       // ############# status flag ops #############
   
       // 76543210
@@ -599,8 +630,8 @@ void doOperation() {
         return;
   
       case DECA:
-        if (acc[0] == 0xFF) setFlag(OVERFLOW, true);
-        acc[0]++;
+        if (acc[0] == 0x00) setFlag(OVERFLOW, true);
+        acc[0]--;
         doFlags(acc[0]);
         return;
   
@@ -637,7 +668,15 @@ void doOperation() {
         xStackP++;
         doFlags(xStackP);
         return;
-  
+
+      case DEXS:  // decrement Auxiliary Stack pointer
+        if (xStackP == 0x00) {
+          setFlag(OVERFLOW, true);
+        }
+        xStackP--;
+        doFlags(xStackP);
+        return;
+
       case INCX:
         if (xReg == 0xFFFF) {
           setFlag(OVERFLOW, true);
@@ -709,11 +748,10 @@ void doOperation() {
         return;
   
       case ROT: //  a b c => c a b
-        val8 = xStack[xStackP];
-        xStack[xStackP] = xStack[xStackP - 2];
-        xStack[xStackP - 2] = xStack[xStackP - 1];
-        xStack[xStackP - 1] = val8;
-        showError("tESt");
+        val8 = xStack[xStackP];  // Save top (c)
+        xStack[xStackP] = xStack[xStackP - 1];  // top = middle (b)
+        xStack[xStackP - 1] = xStack[xStackP - 2];  // middle = bottom (a)
+        xStack[xStackP - 2] = val8;  // bottom = saved top (c)
         return;
   
       case DROP: // a b c => b c
