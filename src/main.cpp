@@ -13,6 +13,8 @@ void setup()
   Serial.begin(9600);
   Serial.println("Serial started");
 
+  pinMode(speakerPin, OUTPUT);
+
   tm.reset();
   Serial.println("TM1638 reset");
 
@@ -31,10 +33,8 @@ void setup()
     tm.setLED(i, 1); // switch off
   }
   tm.displayASCII(4, 'r'); //
-                           // while(1) {
   doTone(0, 10);
   doTone(1, 100);
-  // }
   translateProg();
   Serial.println("translated Prog");
   // while(1) loop();
@@ -42,13 +42,14 @@ void setup()
 
 void loop()
 {
-  Serial.println("loop");
-  processNextProgramStep();
+  receiveProg();
   handleButtons();
   display();
   if (mode == RUN_MODE)
   {
     doOperation();
+    pc++;
+    processNextProgramStep();
   }
   delay(10);
 }

@@ -17,7 +17,7 @@
 #define ADCBx 0x90
 #define SUBBx 0x98
 
-#define MAX_PROG_SIZE 128
+#define MAX_PROG_SIZE 256
 #define PC_STACK_SIZE 64
 #define X_STACK_SIZE 64
 

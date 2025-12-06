@@ -7,20 +7,16 @@
 
 boolean mode = PROG_MODE;
 
-uint8_t program[] = {
-    PLAYN, NOTE_IDX_C4, 10,
-    PLAYN, NOTE_IDX_G4, 20,
-    STOP
-};
+uint8_t program[MAX_PROG_SIZE] = { PLAYN, NOTE_IDX_C4, 10, PLAYN, NOTE_IDX_G4, 20, STOP };
 boolean runMode = STEP;
 boolean debugOn = true; // DEBUG
 unsigned int pc = 0;
 uint8_t xStack[X_STACK_SIZE]; // experimental stack-oriented programming/maths stack
 uint8_t tempo = 120;
 boolean loadToEEPROM;
-uint16_t end;
+uint16_t end = 0; // highest written address + 1
 uint8_t buffer [2 * MAX_PROG_SIZE]; // maybe buffer isn't needed now I've improved the serial..?
-static uint8_t rawSize;
+static uint16_t rawSize;
 uint8_t pcStack[PC_STACK_SIZE]; // PC/subroutine-oriented stack
 unsigned long buttonMillis = 0; // time since last button press
 unsigned long buttonDelay = 200;
@@ -31,10 +27,18 @@ uint8_t incdec = true; // true for increment, false for decrement
 // static boolean recvInProgress = false;
 boolean newData = false;
 boolean readyToReceive = true;
+static bool recvInProgress = false;
+static unsigned long lastByteAt = 0;
+static uint16_t recvIndex = 0;
 
-const uint16_t noteFrequencies[] = {
-    NOTE_C4,
-    NOTE_G4,
+// MIDI-ish frequencies starting at B0, matches legacy DOG-1 table
+const unsigned int notes[] = {
+    31, 33, 35, 37, 39, 41, 44, 46, 49, 52, 55, 58, 62, 65, 69, 73, 78, 82, 87, 93, 98,
+    104, 110, 117, 123, 131, 139, 147, 156, 165, 175, 185, 196, 208, 220, 233, 247, 262,
+    277, 294, 311, 330, 349, 370, 392, 415, 440, 466, 494, 523, 554, 587, 622, 659, 698,
+    740, 784, 831, 880, 932, 988, 1047, 1109, 1175, 1245, 1319, 1397, 1480, 1568, 1661,
+    1760, 1865, 1976, 2093, 2217, 2349, 2489, 2637, 2794, 2960, 3136, 3322, 3520, 3729,
+    3951, 4186, 4435, 4699, 4978
 };
 
 uint8_t xStackP; // stack pointer, 8 bits, 0 to 255
@@ -56,10 +60,17 @@ void setupCore() {
 
 void loadFromEEPROM() {
     flashMessage("EEPROM");
-    for (uint16_t i = 0; i < end; i++) {
-      program[i] = EEPROM.read(i);
+    end = 0;
+    for (uint16_t i = 0; i < MAX_PROG_SIZE; i++) {
+      uint8_t b = EEPROM.read(i);
+      if (b == 0xFF) {
+        break; // treat 0xFF as unused
+      }
+      program[i] = b;
+      end = i + 1;
     }
-  }
+    pc = 0;
+}
 
 
 void resetRegisters() {
@@ -75,6 +86,7 @@ void resetRegisters() {
 void initRegisters() {
 
     resetRegisters();
+    end = 0;
   
     for (unsigned int i = 0; i < MAX_PROG_SIZE; i++) { // wipe all instructions
       program[i] = 0; // NOP
@@ -98,7 +110,7 @@ void initRegisters() {
   }
 
   /*
-   Move data from buffer into program array
+  Move data from buffer into program array
 */
 void translateProg() {
     // nothing to translate unless we've actually received a buffer
@@ -112,27 +124,20 @@ void translateProg() {
       return;
     }
 
-    uint16_t start = 0;
-  
-    // first two bytes specify program location
-    if (!loadToEEPROM) {
-      start = readLong(0) * 256 + readLong(2);
-    }
-    
-           uint8_t hi = hexCharToValue(buffer[0]);
-        uint8_t lo = hexCharToValue(buffer[1]);
-        tm.displayHex(4, hi);
-        tm.displayHex(5, lo);
-        start = readLong(0);
-        hi = hexCharToValue(buffer[2]);
-        lo = hexCharToValue(buffer[3]);
-  
+    // first two bytes specify program start address (big endian)
+    uint16_t start = readLong(0) * 256 + readLong(2);
+
+    uint8_t startHi = hexCharToValue(buffer[0]);
+    uint8_t startLo = hexCharToValue(buffer[1]);
+    tm.displayHex(4, startHi);
+    tm.displayHex(5, startLo);
+
     pc = start;
-    Serial.println("pc = "+pc);
-    for (uint8_t pos = 4; pos < rawSize - 1; pos = pos + 2) {
-      Serial.write(hi);
-     Serial.write(lo);
-      uint8_t hi = hexCharToValue(buffer[pos]); // USE READLONG
+    Serial.print("pc = ");
+    Serial.println(pc);
+
+    for (uint8_t pos = 4; pos + 1 < rawSize; pos += 2) {
+      uint8_t hi = hexCharToValue(buffer[pos]);
       uint8_t lo = hexCharToValue(buffer[pos + 1]);
       uint8_t code = hi * 16 + lo;
       program[pc++] = code;
@@ -141,7 +146,12 @@ void translateProg() {
     }
     end = pc;
     newData = false;
+    rawSize = 0;
     flashMessage("Loaded.");
+    Serial.print("Loaded bytes: ");
+    Serial.println(end - start);
+    Serial.print("First opcode: 0x");
+    Serial.println(program[start], HEX);
   
     pc = start;
     display();
@@ -447,52 +457,48 @@ void doOperation() {
   
       // ############### Branches
   
-      case BRA:
-        pc++;  // Move to offset byte
-        pc++;  // Move to next instruction
-        pc += (int8_t)program[pc - 1];  // Add offset (read from previous position)
+      case BRA: {
+        pc++; // move to offset byte
+        int8_t offset = (int8_t)program[pc];
+        pc += offset; // pc will be bumped to next instruction in loop
         return;
+      }
   
-      case BZS:                           // branch if zero set
-        pc++;  // Move to offset byte
+      case BZS: {                          // branch if zero set
+        pc++;
+        int8_t offset = (int8_t)program[pc];
         if (getFlag(ZERO)) {
-          pc++;  // Move to next instruction
-          pc += (int8_t)program[pc - 1];  // Add offset
-        } else {
-          pc++;  // Skip offset byte if not branching
+          pc += offset;
         }
         return;
+      }
   
-      case BZC:                           // branch if zero clear
-        pc++;  // Move to offset byte
+      case BZC: {                          // branch if zero clear
+        pc++;
+        int8_t offset = (int8_t)program[pc];
         if (!getFlag(ZERO)) {
-          pc++;  // Move to next instruction
-          pc += (int8_t)program[pc - 1];  // Add offset
-        } else {
-          pc++;  // Skip offset byte if not branching
+          pc += offset;
         }
         return;
+      }
   
-      //
-      case BCS:                           // branch if carry set
-        pc++;  // Move to offset byte
+      case BCS: {                          // branch if carry set
+        pc++;
+        int8_t offset = (int8_t)program[pc];
         if (getFlag(CARRY)) {
-          pc++;  // Move to next instruction
-          pc += (int8_t)program[pc - 1];  // Add offset
-        } else {
-          pc++;  // Skip offset byte if not branching
+          pc += offset;
         }
         return;
+      }
   
-      case BCC:                           // branch if carry clear
-        pc++;  // Move to offset byte
+      case BCC: {                          // branch if carry clear
+        pc++;
+        int8_t offset = (int8_t)program[pc];
         if (!getFlag(CARRY)) {
-          pc++;  // Move to next instruction
-          pc += (int8_t)program[pc - 1];  // Add offset
-        } else {
-          pc++;  // Skip offset byte if not branching
+          pc += offset;
         }
         return;
+      }
   
       // ############### acc logical operators ###############
 
@@ -518,19 +524,103 @@ void doOperation() {
         val8 = acc[0] + (!acc[1] + 1);
         setFlag(CARRY, val8 & 128);
         // C bit set if subtraction would require a borrow in the most significant bit of result, otherwise cleared. V flag????
-  
+
         return;
+
+      case CMPAi: { // compare immediate with A
+        uint8_t val = program[++pc];
+        uint8_t diff = acc[0] - val;
+        setFlag(ZERO, acc[0] == val);
+        setFlag(CARRY, acc[0] >= val); // borrow clear -> carry set
+        setFlag(OVERFLOW, ((acc[0] ^ val) & (acc[0] ^ diff) & 0x80) != 0);
+        setFlag(NEGATIVE, diff & 0x80);
+        return;
+      }
+
+      case CMPAa: { // compare absolute with A
+        uint8_t val = program[readAbsoluteAddr()];
+        uint8_t diff = acc[0] - val;
+        setFlag(ZERO, acc[0] == val);
+        setFlag(CARRY, acc[0] >= val);
+        setFlag(OVERFLOW, ((acc[0] ^ val) & (acc[0] ^ diff) & 0x80) != 0);
+        setFlag(NEGATIVE, diff & 0x80);
+        return;
+      }
+
+      case CMPAx: { // compare indexed with A
+        uint8_t val = program[xReg + program[++pc]];
+        uint8_t diff = acc[0] - val;
+        setFlag(ZERO, acc[0] == val);
+        setFlag(CARRY, acc[0] >= val);
+        setFlag(OVERFLOW, ((acc[0] ^ val) & (acc[0] ^ diff) & 0x80) != 0);
+        setFlag(NEGATIVE, diff & 0x80);
+        return;
+      }
   
       case AND: // bitwise AND of accumulators A & B, result in A
         acc[0] = acc[0] & acc[1];
+        return;
+
+      case ANDAi: // A &= immediate
+        acc[0] = acc[0] & program[++pc];
+        setFlag(OVERFLOW, false);
+        doFlags(acc[0]);
+        return;
+
+      case ANDAa: // A &= absolute
+        acc[0] = acc[0] & program[readAbsoluteAddr()];
+        setFlag(OVERFLOW, false);
+        doFlags(acc[0]);
+        return;
+
+      case ANDAx: // A &= indexed
+        acc[0] = acc[0] & program[xReg + program[++pc]];
+        setFlag(OVERFLOW, false);
+        doFlags(acc[0]);
         return;
   
       case OR: // bitwise OR of accumulators A & B, result in A
         acc[0] = acc[0] | acc[1];
         return;
+
+      case ORAi:
+        acc[0] = acc[0] | program[++pc];
+        setFlag(OVERFLOW, false);
+        doFlags(acc[0]);
+        return;
+
+      case ORAa:
+        acc[0] = acc[0] | program[readAbsoluteAddr()];
+        setFlag(OVERFLOW, false);
+        doFlags(acc[0]);
+        return;
+
+      case ORAx:
+        acc[0] = acc[0] | program[xReg + program[++pc]];
+        setFlag(OVERFLOW, false);
+        doFlags(acc[0]);
+        return;
   
       case XOR: // bitwise XOR of accumulators A & B, result in A
         acc[0] = acc[0] ^ acc[1];
+        return;
+
+      case EORAi:
+        acc[0] = acc[0] ^ program[++pc];
+        setFlag(OVERFLOW, false);
+        doFlags(acc[0]);
+        return;
+
+      case EORAa:
+        acc[0] = acc[0] ^ program[readAbsoluteAddr()];
+        setFlag(OVERFLOW, false);
+        doFlags(acc[0]);
+        return;
+
+      case EORAx:
+        acc[0] = acc[0] ^ program[xReg + program[++pc]];
+        setFlag(OVERFLOW, false);
+        doFlags(acc[0]);
         return;
   
       case COMA: // bitwise complement, accumulator A
@@ -572,10 +662,6 @@ void doOperation() {
         acc[1] = ((acc[0] & 1) << 7) | acc[1]; // move lsb of acc A across
         acc[0] = acc[0] >> 1;
         setFlag(ZERO, acc[0] == 0);
-        return;
-  
-      case EORAi:
-        EORi(0);
         return;
   
       case EORBi:
@@ -769,7 +855,6 @@ void doOperation() {
           showError("Undr");
         }
         xStackP--;
-        showError("tESt");
         return;
   
       case TUCK: // a b c => a b a c
@@ -930,27 +1015,32 @@ void doOperation() {
 
   
 void doTone(uint8_t noteIndex, uint8_t duration) {
-    if (noteIndex < (sizeof(noteFrequencies) / sizeof(noteFrequencies[0]))) {
-        uint16_t frequency = noteFrequencies[noteIndex];
-        Serial.print("Playing note index: ");
-        Serial.print(noteIndex);
-        Serial.print(" (Freq: ");
-        Serial.print(frequency);
-        Serial.print(") for duration: ");
-        Serial.println(duration);
-    delay(duration * 10);
-            } else {
-        Serial.print("Error: Invalid note index: ");
-        Serial.println(noteIndex);
-        delay(duration * 10);
-            }
+    if (duration == 0) {
+      return;
     }
 
-void processNextProgramStep() {
-    if (pc >= (sizeof(program) / sizeof(program[0]))) {
-        pc = 0;
-        return;
+    // wrap into table length so arbitrary values still play something pleasant
+    uint8_t wrappedIndex = noteIndex % (sizeof(notes) / sizeof(notes[0]));
+    unsigned int frequency = notes[wrappedIndex] * 2; // shift one octave up for audibility
+    if (frequency > 20000) frequency = 20000; // basic cap to stay in audible range for tone()
+    unsigned long ms = (unsigned long)duration * 6000UL / tempo; // scale by tempo like legacy DOG-1
+
+    tone(speakerPin, frequency, ms);
+    delay(ms);
+    noTone(speakerPin);
 }
+
+void processNextProgramStep() {
+    // if no program loaded, stay at start
+    if (end == 0) {
+      pc = 0;
+      return;
+    }
+
+    // wrap at end of loaded program
+    if (pc >= end) {
+        pc = 0;
+    }
 }
 void swapX() {
     uint8_t temp = xStack[xStackP - 1];
@@ -973,6 +1063,52 @@ void showError(String message) {
     waitForButton();
     mode = PROG_MODE;
   }
+
+/**
+ * Poll serial for hex program payload (optional '<' '>' wrappers)
+ * Finishes on '>', newline, or 100ms idle gap.
+ */
+void receiveProg() {
+  while (Serial.available() > 0) {
+    char c = Serial.read();
+    lastByteAt = millis();
+
+    if (recvIndex == 0 && !recvInProgress) {
+      Serial.println("RX start");
+    }
+
+    if (c == '<') {
+      recvIndex = 0;
+      recvInProgress = true;
+      continue;
+    }
+
+    if (c == '>' || c == '\n' || c == '\r') {
+      rawSize = recvIndex;
+      recvInProgress = false;
+      recvIndex = 0;
+      Serial.print("RX end len=");
+      Serial.println(rawSize);
+      translateProg();
+      return;
+    }
+
+    if (recvIndex < sizeof(buffer)) {
+      buffer[recvIndex++] = c;
+      recvInProgress = true;
+    }
+  }
+
+  // time-out based termination for streams without explicit end marker
+  if (recvInProgress && recvIndex > 0 && (millis() - lastByteAt) > 100) {
+    rawSize = recvIndex;
+    recvInProgress = false;
+    recvIndex = 0;
+    Serial.print("RX timeout len=");
+    Serial.println(rawSize);
+    translateProg();
+  }
+}
   
   /*
     uint8_t instruction = program[pc];
