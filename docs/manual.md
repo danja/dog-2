@@ -309,6 +309,17 @@ Canonical version is in the code!!
 IMPORTANT TODO : serial comms for save/load
 
 Using the display etc. and Arduino I/O from code will need some specialised opcodes.
+
+## Built-in Self-Test (User Program)
+
+A simple self-test program is provided at `dog-code/selftest.ass` (assembled to `dog-code/selftest.hex`). It:
+
+- Shows an OK banner as a startup marker (no dedicated SELFTEST opcode exists).
+- Verifies load/store, arithmetic (ABA), compares, and stack push/pop.
+- Plays two short tones as an audible confirmation.
+- Loops on success; on any failure it displays ERR and halts.
+
+Run it by uploading the program (e.g., `python python/upload.py -i dog-code/selftest.hex`) and switching to RUN mode. If the display shows ERR, re-enter PROG mode and inspect the failing opcode/PC on the TM1638.
 Maybe :
 USE <device id> // to decouple device from system
 UNUSE <device id>

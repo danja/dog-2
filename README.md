@@ -91,6 +91,7 @@ See [Fibonacci Tone Tutorial](docs/fibtone.md) for a complete example.
 - Added Fibonacci tone generator (`dog-code/fibtone.dog`)
 - Complete tutorial for loading programs
 - Improved upload script with auto-detection
+- New self-test (`dog-code/selftest.ass` / `dog-code/selftest.hex`) that sanity-checks core opcodes and plays a short confirmation tune
 
 ## Hardware
 

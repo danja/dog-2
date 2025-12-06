@@ -152,3 +152,7 @@ DECS #define   #define DECS 0xDB // decrement PC Stack pointer
 0xFD OK   display ok  
 0xFE ERR   display err  
 0xFF HALT   terminates  
+
+## Self-Test Program
+
+See `dog-code/selftest.ass` (assembled to `dog-code/selftest.hex`) for a minimal diagnostic that exercises load/store, arithmetic, comparisons, stack ops, and audio. It loops showing OK when all checks pass and halts with ERR on failure.

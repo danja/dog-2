@@ -1,0 +1,63 @@
+; DOG-2 SELFTEST
+; Exercises load/store, arithmetic, stack, and tone opcodes.
+; On success loops with two audible tones.
+; On failure shows ERR and halts.
+
+START 0000
+
+; --- Banner / tempo ---
+TEMPO 64          ; moderate tempo (~100 bpm)
+
+; --- Memory roundtrip: A -> [0x0100] -> B ---
+LDAi AA           ; pattern
+STAa 0100
+LDBa 0100
+CMPAi AA
+BZS 03            ; if equal, skip error jump
+BRA 2F            ; else -> error
+NOP
+
+; --- Arithmetic: 3 + 5 = 8 ---
+LDAi 03
+LDBi 05
+ABA
+CMPAi 08
+BZS 03
+BRA 25            ; -> error (skip over one NOP)
+NOP
+NOP
+
+; --- Stack: push/pop preserves A ---
+PUSHXA            ; push A (08)
+LDAi 00           ; clobber A
+POPXA             ; restore
+CMPAi 08
+BZS 03
+BRA 1A            ; -> error (skip over one NOP)
+NOP
+NOP
+
+; --- Audio: two beeps ---
+LDAi 08           ; lower note for audibility
+LDBi 10           ; ~1.0s
+TONEAB
+REST 05
+LDAi 0C
+LDBi 10
+TONEAB
+REST 05
+
+; --- Success pulse ---
+REST 08
+BRA C2            ; loop back to start (pc will wrap to 0000 after increment)
+
+; --- Padding ---
+NOP
+NOP
+NOP
+NOP
+
+; --- Error handler ---
+ERR
+REST 10
+HALT
