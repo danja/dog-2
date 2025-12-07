@@ -1,16 +1,12 @@
+; Random number generator using linear feedback shift register (LFSR)
+; Shifts bits and XORs with mask when carry is set
 
-10 LDAi AC ; put 0xAC in acc A
-AC
-18 LDBi E1 ; put 0xE1 in acc B
-E1
-2B LSR ; shift right (and into carry)
-6B BCC FD; branch -3 if carry clear
-FD
-B0 EORAi B4 ; toggle mask
-B4
-B4 EORBi 00
-00
-FB PAUSE
-69 BZC F6 ; branch up to the shift
-F6
-FF HALT
+LDAi AC   ; put 0xAC in acc A
+LDBi E1   ; put 0xE1 in acc B
+LSR       ; shift right (and into carry)
+BCC FD    ; branch -3 if carry clear
+EORAi B4  ; toggle mask
+EORBi 00  ; XOR B with 0
+PAUSE     ; pause to see result
+BZC F6    ; branch up to the shift
+HALT

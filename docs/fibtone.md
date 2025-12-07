@@ -81,8 +81,7 @@ The DOG-2 repository includes an upload script at `python/upload.py`.
 
 **Auto-detect serial port** (easiest):
 ```bash
-cd python
-python upload.py -i ../dog-code/fibtone.hex
+python python/upload.py -i dog-code/fibtone.hex
 ```
 
 **Specify serial port**:

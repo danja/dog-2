@@ -3,13 +3,15 @@
 DOG-2 Program Uploader
 
 Uploads programs to DOG-2 via serial connection.
-Supports both legacy .txt format and .hex format.
+Supports .dog (assembly source) and .hex (hex data) formats.
 """
 import argparse
 import sys
+import os
 import os.path
 import serial
 import time
+import subprocess
 
 
 def auto_detect_port():
@@ -22,11 +24,17 @@ def auto_detect_port():
 
 
 def read_txt_format(filename):
-    """Read legacy .txt format (first 2 chars of each line)"""
+    """Read assembler output .txt format (hex values, one per line)"""
     data = ""
     with open(filename, "r") as f:
         for line in f:
-            data += line[:2].rstrip()
+            # Strip comments and whitespace
+            line = line.strip()
+            # Skip empty lines and lines starting with digits (address markers)
+            if line and not line.startswith('0000'):
+                # Extract just the hex digits (before any space or comment)
+                hex_part = line.split()[0] if line.split() else ''
+                data += hex_part
     return data
 
 
@@ -39,40 +47,99 @@ def read_hex_format(filename):
     return hex_data
 
 
+def assemble_dog_file(dog_file):
+    """Assemble a .dog file to .hex format using ass.py
+
+    Returns the path to the generated .hex file
+    """
+    # Get the directory and base name
+    dog_dir = os.path.dirname(dog_file)
+    dog_base = os.path.splitext(os.path.basename(dog_file))[0]
+
+    # Generate output path for .hex file
+    hex_file = os.path.join(dog_dir, dog_base + '.hex')
+
+    # Get the path to ass.py (in the same directory as this script)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    ass_py = os.path.join(script_dir, 'ass.py')
+
+    # Get the path to src/core.h (one directory up from script_dir)
+    project_dir = os.path.dirname(script_dir)
+    core_h = os.path.join(project_dir, 'src', 'core.h')
+
+    if not os.path.exists(ass_py):
+        print(f"Error: Assembler not found at {ass_py}")
+        sys.exit(1)
+
+    if not os.path.exists(core_h):
+        print(f"Error: core.h not found at {core_h}")
+        sys.exit(1)
+
+    print(f"Assembling {dog_file} to {hex_file}...")
+
+    # Use a temporary file for assembler output
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as tmp:
+        tmp_file = tmp.name
+
+    try:
+        # Run the assembler to create temporary .txt format
+        result = subprocess.run(
+            [sys.executable, ass_py, '-i', dog_file, '-o', tmp_file, '-s', core_h],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+        # Convert .txt to .hex format
+        txt_data = read_txt_format(tmp_file)
+
+        with open(hex_file, 'w') as f:
+            f.write(txt_data + '\n')
+
+        print(f"  Created {hex_file}")
+
+    except subprocess.CalledProcessError as e:
+        print(f"Error running assembler: {e}")
+        if e.stderr:
+            print(e.stderr)
+        sys.exit(1)
+    finally:
+        # Clean up temporary file
+        if os.path.exists(tmp_file):
+            os.remove(tmp_file)
+
+    return hex_file
+
+
 def validate_hex(data):
     """Validate that data is valid hex"""
     return all(c in '0123456789ABCDEFabcdef' for c in data)
 
 
-def upload_program(port, input_file, baud_rate=9600, use_markers=False):
+def upload_program(port, input_file, baud_rate=9600):
     """Upload a DOG-2 program via serial"""
 
     # Determine file format by extension
     _, ext = os.path.splitext(input_file)
 
-    if ext == '.txt':
-        print(f"Reading legacy .txt format from {input_file}...")
-        hex_data = read_txt_format(input_file)
-        use_markers = True  # Legacy format uses markers
+    if ext == '.dog':
+        # Assemble .dog file first
+        hex_file = assemble_dog_file(input_file)
+        print(f"Reading assembled .hex format from {hex_file}...")
+        hex_data = read_hex_format(hex_file)
     elif ext == '.hex':
         print(f"Reading .hex format from {input_file}...")
         hex_data = read_hex_format(input_file)
     else:
-        # Try to auto-detect
-        print(f"Reading {input_file}...")
-        try:
-            hex_data = read_hex_format(input_file)
-        except:
-            hex_data = read_txt_format(input_file)
+        print(f"Error: Unsupported file extension '{ext}'")
+        print("Supported formats: .dog (assembly), .hex (hex data)")
+        sys.exit(1)
 
     # Validate hex data
     if not validate_hex(hex_data):
         print("Error: File contains invalid hex characters")
         sys.exit(1)
-
-    # Add markers if needed (legacy format)
-    if use_markers:
-        hex_data = "<" + hex_data + ">"
 
     print(f"Uploading {len(hex_data)} characters to {port} at {baud_rate} baud...")
     if len(hex_data) <= 80:
@@ -139,13 +206,13 @@ if __name__ == '__main__':
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  python upload.py -i dog-code/fibtone.dog
   python upload.py -i dog-code/fibtone.hex
   python upload.py -i dog-code/fibtone.hex -p /dev/ttyUSB0
-  python upload.py -i prog.txt -b 57600
 
 File formats:
+  .dog - Assembly source (will be assembled automatically to .hex)
   .hex - Continuous hex string (e.g., 0000F03C1001...)
-  .txt - Legacy format (first 2 hex chars per line)
         """
     )
 
@@ -153,7 +220,7 @@ File formats:
                        action="store",
                        dest='input',
                        required=True,
-                       help='Input file (.hex or .txt format)')
+                       help='Input file (.dog or .hex format)')
 
     parser.add_argument('-p', '--port',
                        action="store",
